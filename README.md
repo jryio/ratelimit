@@ -25,10 +25,10 @@ curl localhost:3000/testing -H "Authorization: Bearer 1pw"
 I wanted to write a bit about this submission and my process.
 
 
-:warning: First, I did not succeed in implementing a fully working solution in the time allocated to me. 
+~:warning: First, I did not succeed in implementing a fully working solution in the time allocated to me. 
 I feel quite bad about that. Specifically I was unable to rate-limit requests **per Bearer token**. I did
 succeed in writing a working rate limiter per-endpoint as specified. Unfortunately
-I was unable to get a working ratelimiter keyed on each token (explained below).
+I was unable to get a working ratelimiter keyed on each token (explained below).~
 
 :warning: Second, I was not able to write my implementation in the provided time limit. 
 Attempting to fix my mistake took on the order of 5 hours
@@ -78,15 +78,31 @@ While using `Service` to implement this solution I encountered several issues.
    is `Send`.
 
 
+👉 **Resolution**: Approach #2 was the best way to go about it. I stopped using `poll_ready()` 
+and `PollSemaphore` and opted instead to only use `Arc<RwLock<HashMap<Token, Arc<Mutex<usize>>>>>`.
+Within the `call` method I encoded the availability of the service as returning an
+`Err(RateLimitError)`. This worked from the perspective of axum and tower.
 
-Additionally, choosing `Arc<RwLock<HashMap<Token, Arc<Mutex<usize>>>>` was a
-mistake for several reasons
 
-1. The overhead is large to say the least
-2. When attempting approach #2 above, `MutexGuard` is not `Send` for good reason.
+~Additionally, choosing `Arc<RwLock<HashMap<Token, Arc<Mutex<usize>>>>` was a
+mistake for several reasons~
+
+1. [Still true] The overhead is large to say the least
+2. [Not true] When attempting approach #2 above, `MutexGuard` is not `Send` for good reason.
    This would have worked fine for a single thread, but attempting to move it
    into a Boxed Future is impossible. An oversight on my part because of #2
    above.
+
+👉 **Resolution**: Issue #2 with using `Arx<Mutex<usize>>` was actually related to
+using `Mutex` across `await`. I was not aware of this as an issue, however a
+quick search through the `tokio` documentation ([Holding a Mutex across an `.await`](https://tokio.rs/tokio/tutorial/shared-state#holding-a-mutexguard-across-an-await)) 
+revealed that this is a common mistake (enough to document). It became clear
+when I read:
+
+"_This is because the compiler currently calculates whether a future is Send
+based on scope information only. The compiler will hopefully be updated to
+support explicitly dropping it in the future, but for now, you must explicitly
+use a scope._"
 
 
 ### Alternative Approaches
@@ -101,9 +117,18 @@ reqs remaining.
 I could have implemented shared state as `Arc<RwLock<HashMap<Token, AtomicU64>>` for
 example.
 
+
+👉 **Resolution**: I still think that working with atomics and a better implemented
+concurrent `HashMap` may be a more performant and lower overhead approach to
+this problem.
+
+
 If I were to do this differently I might have avoided the overhead
 of both `axum` and `tower` and used lower level HTTP libraries to simply grab
 the bearer token off of requests directly and maintain my own shared state.
+
+👉 **Resolution**: While both tower and axum are convenient, I can see that writing
+a `tower::Service` may not be a two-hour scoped experience for me just yet.
 
 
 ### Conclusion
@@ -135,4 +160,11 @@ https://tokio.rs/blog/2021-05-14-inventing-the-service-trait
 
 https://github.com/tower-rs/tower/blob/master/guides/building-a-middleware-from-scratch.md
 
+https://tokio.rs/tokio/tutorial/shared-state#holding-a-mutexguard-across-an-await
+
+https://docs.rs/tokio/latest/tokio/
+
+https://docs.rs/tower/latest/tower/
+
+https://docs.rs/axum/latest/axum/
 
